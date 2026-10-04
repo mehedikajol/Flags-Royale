@@ -1,0 +1,86 @@
+<div class="wrap">
+  <header>
+    <h1>Flags Royale</h1>
+    <p>
+      Country flags bounce around the arena. Touch the spinning blade on the rim and you're out. Last flag standing
+      wins.
+    </p>
+  </header>
+  <div class="layout">
+    <div class="stage">
+      <canvas #cv aria-label="Arena with bouncing flags and a rotating blade"></canvas>
+      <div class="win" [class.show]="showWin">
+        <div class="win-card">
+          <canvas #wc width="240" height="240"></canvas>
+          <div class="who">{{ winName }}</div>
+          <div class="sub">Last flag standing</div>
+          <button (click)="playAgain()">Play again</button>
+        </div>
+      </div>
+    </div>
+    <aside>
+      <div class="count">
+        <b>{{ aliveCount }}</b>
+        <span>
+          of
+          <span>
+            {{ total }}
+          </span>
+          flags left
+        </span>
+      </div>
+      <div class="buttons">
+        <button class="primary" (click)="toggleStart()">
+          {{ startLabel }}
+        </button>
+        <button (click)="newRound()">New round</button>
+      </div>
+      <label>
+        <div class="row">
+          Flag speed <output>{{ speedLabel }}</output>
+        </div>
+        <input type="range" min="80" max="420" [value]="opts.speed" (input)="onSpeed($event)" />
+      </label>
+      <label>
+        <div class="row">
+          Blade speed <output>{{ bladeSpeedLabel }}</output>
+        </div>
+        <input type="range" min="20" max="300" [value]="opts.bladeSpeed * 100" (input)="onBladeSpeed($event)" />
+      </label>
+      <label>
+        <div class="row">
+          Blade length <output>{{ opts.bladeArc }}°</output>
+        </div>
+        <input type="range" min="15" max="120" [value]="opts.bladeArc" (input)="onBladeArc($event)" />
+      </label>
+      <label>
+        <div class="row">Flag pool</div>
+        <select [value]="flagPoolId" (change)="onFlagPoolChange($event)">
+          <option *ngFor="let pool of pools" [value]="pool.id">{{ pool.name }} ({{ pool.flags.length }})</option>
+        </select>
+      </label>
+      <label>
+        <div class="row">
+          Number of flags <output>{{ flagCount }}</output>
+        </div>
+        <input
+          type="range"
+          min="2"
+          [max]="flagPool.flags.length"
+          [value]="flagCount"
+          (input)="onFlagCount($event)"
+          [disabled]="flagPoolId !== allFlags"
+        />
+      </label>
+      <h2>Eliminated</h2>
+      <ol>
+        <li *ngFor="let e of eliminated" [class.champ]="e.rank === 1">
+          <span class="pl">#{{ e.rank }}</span>
+          <img alt="" [src]="icon(e.flag)" [srcset]="iconSrcset(e.flag)" />
+          <span>{{ e.flag.n }}</span>
+        </li>
+      </ol>
+      <div class="empty" *ngIf="!eliminated.length">Press Start. Knocked-out flags show up here.</div>
+    </aside>
+  </div>
+</div>
