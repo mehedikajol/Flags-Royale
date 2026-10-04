@@ -56,7 +56,11 @@
       <label>
         <div class="row">Flag pool</div>
         <select [value]="flagPoolId" (change)="onFlagPoolChange($event)">
-          <option *ngFor="let pool of pools" [value]="pool.id">{{ pool.name }} ({{ pool.flags.length }})</option>
+          @for (pool of pools; track $index) {
+            <option [value]="pool.id" class="text-black" [selected]="flagPoolId === pool.id">
+              {{ pool.name }} ({{ pool.flags.length }})
+            </option>
+          }
         </select>
       </label>
       <label>
@@ -74,13 +78,17 @@
       </label>
       <h2>Eliminated</h2>
       <ol>
-        <li *ngFor="let e of eliminated" [class.champ]="e.rank === 1">
-          <span class="pl">#{{ e.rank }}</span>
-          <img alt="" [src]="icon(e.flag)" [srcset]="iconSrcset(e.flag)" />
-          <span>{{ e.flag.n }}</span>
-        </li>
+        @for (e of eliminated; track $index) {
+          <li [class.champ]="e.rank === 1">
+            <span class="pl">#{{ e.rank }}</span>
+            <img alt="" [src]="icon(e.flag)" [srcset]="iconSrcset(e.flag)" />
+            <span>{{ e.flag.n }}</span>
+          </li>
+        }
       </ol>
-      <div class="empty" *ngIf="!eliminated.length">Press Start. Knocked-out flags show up here.</div>
+      @if (!eliminated.length) {
+        <div class="empty">Press Start. Knocked-out flags show up here.</div>
+      }
     </aside>
   </div>
 </div>
