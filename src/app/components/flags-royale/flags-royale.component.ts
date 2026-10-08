@@ -1,12 +1,13 @@
 import { CommonModule } from '@angular/common';
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, NgZone, OnDestroy, ViewChild } from '@angular/core';
-import { BR, COUNT, PAD, R } from '../../data/constants';
+import { BR, COUNT, DROP_R, DROP_SPEED, PAD, R, SHIELD_COLOR, SHIELD_EVERY, SHIELD_TIME } from '../../data/constants';
 import { FLAG_POOLS, FLAGS } from '../../data/flags.data';
 import { Ball } from '../../models/ball';
 import { Debris } from '../../models/debris';
 import { ElimEntry } from '../../models/elimEntry';
 import { Flag } from '../../models/flag';
 import { FlagPool } from '../../models/flagPool';
+import { ShieldDrop } from '../../models/shieldDrop';
 import { Spark } from '../../models/spark';
 
 @Component({
@@ -31,6 +32,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   bladeSpeedLabel = '0.9x';
   eliminated: ElimEntry[] = [];
   allFlags = FLAG_POOLS.at(0)?.id;
+  // Settings start collapsed on phones so the controls sit right under the arena.
+  settingsOpen = window.matchMedia('(min-width: 860px)').matches;
 
   get flagPool(): FlagPool {
     return FLAG_POOLS.find((p) => p.id === this.flagPoolId) || FLAG_POOLS[0];
@@ -43,12 +46,16 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private balls: Ball[] = [];
   private debris: Debris[] = [];
   private sparks: Spark[] = [];
+  private drops: ShieldDrop[] = [];
+  private dropTimer = SHIELD_EVERY;
+  private clock = 0;
   private state: 'ready' | 'running' | 'paused' | 'over' = 'ready';
   private bladeA = -Math.PI / 2;
   private shake = 0;
   private flash = 0;
   private scale = 1;
   private dpr = 1;
+  private labelPx = 11;
   private col: Record<string, string> = {};
   private flagImgMap = new Map<string, HTMLImageElement>();
   private rafId = 0;
@@ -139,6 +146,9 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     cv.width = Math.round(size * this.dpr);
     cv.height = Math.round(size * this.dpr);
     this.scale = cv.width / (2 * R + 2 * PAD);
+    // Keep flag names at least ~9 CSS px tall when the arena is drawn small.
+    const cssScale = size / (2 * R + 2 * PAD);
+    this.labelPx = cssScale > 0 ? Math.min(20, Math.max(11, 9 / cssScale)) : 11;
   }
 
   private setup(): void {
@@ -163,10 +173,13 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
         vx: Math.cos(va),
         vy: Math.sin(va),
         alive: true,
+        shield: 0,
       });
     }
     this.debris = [];
     this.sparks = [];
+    this.drops = [];
+    this.dropTimer = SHIELD_EVERY;
     this.bladeA = -Math.PI / 2;
     this.state = 'ready';
     this.eliminated = [];
@@ -189,11 +202,15 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   }
 
   private step(dt: number, lethal: boolean): void {
-    if (lethal) this.bladeA += this.opts.bladeSpeed * dt;
+    if (lethal) {
+      this.bladeA += this.opts.bladeSpeed * dt;
+      this.stepDrops(dt);
+    }
     const half = (this.opts.bladeArc * Math.PI) / 360;
 
     for (const b of this.balls) {
       if (!b.alive) continue;
+      if (lethal && b.shield > 0) b.shield = Math.max(0, b.shield - dt);
       const w = (Math.random() - 0.5) * 2.4 * dt;
       const c = Math.cos(w),
         s = Math.sin(w);
@@ -206,7 +223,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       const d = Math.hypot(b.x, b.y);
       if (d + BR >= R) {
         const a = Math.atan2(b.y, b.x);
-        if (lethal && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6) {
+        const onBlade = lethal && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6;
+        if (onBlade && b.shield <= 0) {
           this.kill(b, a);
           continue;
         }
@@ -218,6 +236,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
         if (vn > 0) {
           b.vx -= 2 * vn * nx;
           b.vy -= 2 * vn * ny;
+          // Shielded flag glances off the blade.
+          if (onBlade) this.burst(nx * R, ny * R, a + Math.PI, 12, SHIELD_COLOR);
         }
       }
     }
@@ -257,6 +277,58 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       const s = Math.hypot(b.vx, b.vy) || 1;
       b.vx /= s;
       b.vy /= s;
+    }
+  }
+
+  // ---------- Shield drops ----------
+  private stepDrops(dt: number): void {
+    this.dropTimer -= dt;
+    if (this.dropTimer <= 0) {
+      this.dropTimer += SHIELD_EVERY;
+      this.spawnDrop();
+    }
+
+    for (const d of this.drops) {
+      d.y += d.vy * dt;
+      d.wobble += dt;
+    }
+
+    this.drops = this.drops.filter((d) => {
+      const hit = this.balls.find((b) => b.alive && Math.hypot(b.x - d.x, b.y - d.y) < BR + DROP_R);
+      if (hit) {
+        hit.shield = SHIELD_TIME;
+        this.burst(d.x, d.y, -Math.PI / 2, 20, SHIELD_COLOR, Math.PI * 2);
+        return false;
+      }
+      // Missed everything and reached the bottom rim: fizzle out.
+      if (d.y > 0 && Math.hypot(d.x, d.y) + DROP_R > R) {
+        this.burst(d.x, d.y, -Math.PI / 2, 8, SHIELD_COLOR, 1.6);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private spawnDrop(): void {
+    // Random spot along the top, kept away from the edges where the arena is too shallow.
+    const lim = R - 60;
+    const x = (Math.random() * 2 - 1) * lim;
+    this.drops.push({ x, y: -R - PAD - DROP_R, vy: DROP_SPEED, wobble: 0 });
+  }
+
+  private burst(x: number, y: number, dir: number, n: number, color: string, spread = 1.8): void {
+    for (let i = 0; i < n; i++) {
+      const sa = dir + (Math.random() - 0.5) * spread;
+      const sp = 80 + Math.random() * 240;
+      this.sparks.push({
+        x,
+        y,
+        vx: Math.cos(sa) * sp,
+        vy: Math.sin(sa) * sp,
+        life: 0.3 + Math.random() * 0.35,
+        hot: false,
+        color,
+      });
     }
   }
 
@@ -308,6 +380,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
 
   private finish(): void {
     this.state = 'over';
+    this.drops = [];
     this.startLabel = 'Play again';
     const w = this.balls.find((b) => b.alive)!;
     this.eliminated = [{ rank: 1, flag: w.f }, ...this.eliminated];
@@ -358,6 +431,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private frame(t: number): void {
     const dt = Math.min(0.033, (t - this.last) / 1000);
     this.last = t;
+    this.clock += dt;
     if (this.state === 'running' || this.state === 'over') {
       for (let i = 0; i < 4; i++) this.step(dt / 4, this.state === 'running');
     }
@@ -457,7 +531,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     g.stroke();
     g.restore();
 
-    g.font = '600 11px "Bricolage Grotesque", system-ui, sans-serif';
+    const lp = this.labelPx;
+    g.font = `600 ${lp}px "Bricolage Grotesque", system-ui, sans-serif`;
     for (const b of this.balls) {
       if (!b.alive) continue;
       g.save();
@@ -475,10 +550,11 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       g.beginPath();
       g.arc(b.x, b.y, BR, 0, Math.PI * 2);
       g.stroke();
+      if (b.shield > 0) this.drawShield(g, b);
       g.fillStyle = 'rgba(0,0,0,.55)';
-      g.fillText(b.f.n, b.x + 1, b.y + BR + 11);
+      g.fillText(b.f.n, b.x + 1, b.y + BR + lp);
       g.fillStyle = '#eef1f6';
-      g.fillText(b.f.n, b.x, b.y + BR + 10);
+      g.fillText(b.f.n, b.x, b.y + BR + lp - 1);
     }
 
     for (const p of this.debris) {
@@ -495,12 +571,82 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       g.restore();
     }
 
+    for (const d of this.drops) this.drawDrop(g, d);
+
     for (const sp of this.sparks) {
-      g.fillStyle = sp.hot ? this.col['hazard'] : '#ffffff';
+      g.fillStyle = sp.color ?? (sp.hot ? this.col['hazard'] : '#ffffff');
       g.globalAlpha = Math.min(1, sp.life * 2.5);
       g.fillRect(sp.x - 1.5, sp.y - 1.5, 3, 3);
     }
     g.globalAlpha = 1;
+  }
+
+  private shieldPath(g: CanvasRenderingContext2D, r: number): void {
+    g.beginPath();
+    g.moveTo(0, -r);
+    g.lineTo(r * 0.85, -r * 0.6);
+    g.lineTo(r * 0.75, r * 0.2);
+    g.quadraticCurveTo(r * 0.5, r * 0.75, 0, r);
+    g.quadraticCurveTo(-r * 0.5, r * 0.75, -r * 0.75, r * 0.2);
+    g.lineTo(-r * 0.85, -r * 0.6);
+    g.closePath();
+  }
+
+  private drawDrop(g: CanvasRenderingContext2D, d: ShieldDrop): void {
+    g.save();
+    const trail = g.createLinearGradient(d.x, d.y - 70, d.x, d.y);
+    trail.addColorStop(0, 'rgba(79,209,255,0)');
+    trail.addColorStop(1, 'rgba(79,209,255,.55)');
+    g.strokeStyle = trail;
+    g.lineWidth = DROP_R * 0.9;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(d.x, d.y - 70);
+    g.lineTo(d.x, d.y);
+    g.stroke();
+
+    g.translate(d.x, d.y);
+    g.rotate(Math.sin(d.wobble * 6) * 0.25);
+    g.shadowColor = SHIELD_COLOR;
+    g.shadowBlur = 16;
+    this.shieldPath(g, DROP_R);
+    g.fillStyle = SHIELD_COLOR;
+    g.fill();
+    g.shadowBlur = 0;
+    g.lineWidth = 2;
+    g.strokeStyle = '#ffffff';
+    g.stroke();
+    this.shieldPath(g, DROP_R * 0.45);
+    g.fillStyle = 'rgba(255,255,255,.9)';
+    g.fill();
+    g.restore();
+  }
+
+  private drawShield(g: CanvasRenderingContext2D, b: Ball): void {
+    // Blink during the last 1.5s so it's clear the shield is about to drop.
+    const ending = b.shield < 1.5;
+    if (ending && Math.sin(this.clock * 24) < 0) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.clock * 8);
+    g.save();
+    g.fillStyle = `rgba(79,209,255,${0.12 + pulse * 0.1})`;
+    g.beginPath();
+    g.arc(b.x, b.y, BR + 6, 0, Math.PI * 2);
+    g.fill();
+    g.shadowColor = SHIELD_COLOR;
+    g.shadowBlur = 12;
+    g.strokeStyle = SHIELD_COLOR;
+    g.lineWidth = 2.5;
+    g.beginPath();
+    g.arc(b.x, b.y, BR + 6, 0, Math.PI * 2);
+    g.stroke();
+    // Remaining time as a sweep around the flag.
+    g.shadowBlur = 0;
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(b.x, b.y, BR + 6, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * b.shield) / SHIELD_TIME);
+    g.stroke();
+    g.restore();
   }
 
   toggleStart(): void {

@@ -2,8 +2,8 @@
   <header>
     <h1>Flags Royale</h1>
     <p>
-      Country flags bounce around the arena. Touch the spinning blade on the rim and you're out. Last flag standing
-      wins.
+      Country flags bounce around the arena. Touch the spinning blade on the rim and you're out. Every 10 seconds a
+      shield drops in. The flag it hits is immune for 5 seconds. Last flag standing wins.
     </p>
   </header>
   <div class="layout">
@@ -19,63 +19,70 @@
       </div>
     </div>
     <aside>
-      <div class="count">
-        <b>{{ aliveCount }}</b>
-        <span>
-          of
+      <div class="hud">
+        <div class="count">
+          <b>{{ aliveCount }}</b>
           <span>
-            {{ total }}
+            of
+            <span>
+              {{ total }}
+            </span>
+            flags left
           </span>
-          flags left
-        </span>
+        </div>
+        <div class="buttons">
+          <button class="primary" (click)="toggleStart()">
+            {{ startLabel }}
+          </button>
+          <button (click)="newRound()">New round</button>
+        </div>
       </div>
-      <div class="buttons">
-        <button class="primary" (click)="toggleStart()">
-          {{ startLabel }}
-        </button>
-        <button (click)="newRound()">New round</button>
-      </div>
-      <label>
-        <div class="row">
-          Flag speed <output>{{ speedLabel }}</output>
+      <details class="settings" [open]="settingsOpen">
+        <summary>Settings</summary>
+        <div class="settings-body">
+          <label>
+            <div class="row">
+              Flag speed <output>{{ speedLabel }}</output>
+            </div>
+            <input type="range" min="80" max="420" [value]="opts.speed" (input)="onSpeed($event)" />
+          </label>
+          <label>
+            <div class="row">
+              Blade speed <output>{{ bladeSpeedLabel }}</output>
+            </div>
+            <input type="range" min="20" max="300" [value]="opts.bladeSpeed * 100" (input)="onBladeSpeed($event)" />
+          </label>
+          <label>
+            <div class="row">
+              Blade length <output>{{ opts.bladeArc }}°</output>
+            </div>
+            <input type="range" min="15" max="120" [value]="opts.bladeArc" (input)="onBladeArc($event)" />
+          </label>
+          <label>
+            <div class="row">Flag pool</div>
+            <select [value]="flagPoolId" (change)="onFlagPoolChange($event)">
+              @for (pool of pools; track $index) {
+                <option [value]="pool.id" class="text-black" [selected]="flagPoolId === pool.id">
+                  {{ pool.name }} ({{ pool.flags.length }})
+                </option>
+              }
+            </select>
+          </label>
+          <label>
+            <div class="row">
+              Number of flags <output>{{ flagCount }}</output>
+            </div>
+            <input
+              type="range"
+              min="2"
+              [max]="flagPool.flags.length"
+              [value]="flagCount"
+              (input)="onFlagCount($event)"
+              [disabled]="flagPoolId !== allFlags"
+            />
+          </label>
         </div>
-        <input type="range" min="80" max="420" [value]="opts.speed" (input)="onSpeed($event)" />
-      </label>
-      <label>
-        <div class="row">
-          Blade speed <output>{{ bladeSpeedLabel }}</output>
-        </div>
-        <input type="range" min="20" max="300" [value]="opts.bladeSpeed * 100" (input)="onBladeSpeed($event)" />
-      </label>
-      <label>
-        <div class="row">
-          Blade length <output>{{ opts.bladeArc }}°</output>
-        </div>
-        <input type="range" min="15" max="120" [value]="opts.bladeArc" (input)="onBladeArc($event)" />
-      </label>
-      <label>
-        <div class="row">Flag pool</div>
-        <select [value]="flagPoolId" (change)="onFlagPoolChange($event)">
-          @for (pool of pools; track $index) {
-            <option [value]="pool.id" class="text-black" [selected]="flagPoolId === pool.id">
-              {{ pool.name }} ({{ pool.flags.length }})
-            </option>
-          }
-        </select>
-      </label>
-      <label>
-        <div class="row">
-          Number of flags <output>{{ flagCount }}</output>
-        </div>
-        <input
-          type="range"
-          min="2"
-          [max]="flagPool.flags.length"
-          [value]="flagCount"
-          (input)="onFlagCount($event)"
-          [disabled]="flagPoolId !== allFlags"
-        />
-      </label>
+      </details>
       <h2>Eliminated</h2>
       <ol>
         @for (e of eliminated; track $index) {

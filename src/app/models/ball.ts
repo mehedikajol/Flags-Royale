@@ -7,4 +7,5 @@ export interface Ball {
   vx: number;
   vy: number;
   alive: boolean;
+  shield: number;
 }

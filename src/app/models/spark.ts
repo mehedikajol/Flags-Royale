@@ -5,4 +5,5 @@ export interface Spark {
   vy: number;
   life: number;
   hot: boolean;
+  color?: string;
 }
