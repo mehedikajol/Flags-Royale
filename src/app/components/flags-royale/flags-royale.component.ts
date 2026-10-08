@@ -1,13 +1,32 @@
 import { CommonModule } from '@angular/common';
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, NgZone, OnDestroy, ViewChild } from '@angular/core';
-import { BR, COUNT, DROP_R, DROP_SPEED, PAD, R, SHIELD_COLOR, SHIELD_EVERY, SHIELD_TIME } from '../../data/constants';
+import {
+  BOMB_COLOR,
+  BOMB_FORCE,
+  BOMB_FUSE_MAX,
+  BOMB_FUSE_MIN,
+  BOMB_RADIUS,
+  BR,
+  COUNT,
+  DROP_EVERY,
+  DROP_R,
+  DROP_SPEED,
+  DROP_WEIGHTS,
+  FREEZE_COLOR,
+  FREEZE_TIME,
+  PAD,
+  R,
+  SHIELD_COLOR,
+  SHIELD_TIME,
+} from '../../data/constants';
 import { FLAG_POOLS, FLAGS } from '../../data/flags.data';
 import { Ball } from '../../models/ball';
 import { Debris } from '../../models/debris';
 import { ElimEntry } from '../../models/elimEntry';
 import { Flag } from '../../models/flag';
 import { FlagPool } from '../../models/flagPool';
-import { ShieldDrop } from '../../models/shieldDrop';
+import { Drop, DropKind } from '../../models/drop';
+import { Shockwave } from '../../models/shockwave';
 import { Spark } from '../../models/spark';
 
 @Component({
@@ -46,8 +65,11 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private balls: Ball[] = [];
   private debris: Debris[] = [];
   private sparks: Spark[] = [];
-  private drops: ShieldDrop[] = [];
-  private dropTimer = SHIELD_EVERY;
+  private drops: Drop[] = [];
+  private waves: Shockwave[] = [];
+  private dropTimer = DROP_EVERY;
+  private freeze = 0;
+  private iceFlash = 0;
   private clock = 0;
   private state: 'ready' | 'running' | 'paused' | 'over' = 'ready';
   private bladeA = -Math.PI / 2;
@@ -174,12 +196,17 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
         vy: Math.sin(va),
         alive: true,
         shield: 0,
+        kx: 0,
+        ky: 0,
       });
     }
     this.debris = [];
     this.sparks = [];
     this.drops = [];
-    this.dropTimer = SHIELD_EVERY;
+    this.waves = [];
+    this.dropTimer = DROP_EVERY;
+    this.freeze = 0;
+    this.iceFlash = 0;
     this.bladeA = -Math.PI / 2;
     this.state = 'ready';
     this.eliminated = [];
@@ -203,7 +230,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
 
   private step(dt: number, lethal: boolean): void {
     if (lethal) {
-      this.bladeA += this.opts.bladeSpeed * dt;
+      if (this.freeze > 0) this.freeze = Math.max(0, this.freeze - dt);
+      else this.bladeA += this.opts.bladeSpeed * dt;
       this.stepDrops(dt);
     }
     const half = (this.opts.bladeArc * Math.PI) / 360;
@@ -218,13 +246,18 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       const nvy = b.vx * s + b.vy * c;
       b.vx = nvx;
       b.vy = nvy;
-      b.x += b.vx * this.opts.speed * dt;
-      b.y += b.vy * this.opts.speed * dt;
+      b.x += (b.vx * this.opts.speed + b.kx) * dt;
+      b.y += (b.vy * this.opts.speed + b.ky) * dt;
+      const kd = Math.pow(0.03, dt);
+      b.kx *= kd;
+      b.ky *= kd;
       const d = Math.hypot(b.x, b.y);
       if (d + BR >= R) {
         const a = Math.atan2(b.y, b.x);
-        const onBlade = lethal && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6;
-        if (onBlade && b.shield <= 0) {
+        // Re-check state: a blast can push several flags in at once, and the round may have just ended.
+        const onBlade =
+          lethal && this.state === 'running' && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6;
+        if (onBlade && b.shield <= 0 && this.freeze <= 0) {
           this.kill(b, a);
           continue;
         }
@@ -236,8 +269,16 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
         if (vn > 0) {
           b.vx -= 2 * vn * nx;
           b.vy -= 2 * vn * ny;
-          // Shielded flag glances off the blade.
-          if (onBlade) this.burst(nx * R, ny * R, a + Math.PI, 12, SHIELD_COLOR);
+          // Shielded flag glances off the blade, or off the ice while it's frozen.
+          if (onBlade) {
+            this.burst(nx * R, ny * R, a + Math.PI, 12, this.freeze > 0 ? FREEZE_COLOR : SHIELD_COLOR);
+          }
+        }
+        // Soak up most of any blast push into the wall.
+        const kn = b.kx * nx + b.ky * ny;
+        if (kn > 0) {
+          b.kx -= 1.6 * kn * nx;
+          b.ky -= 1.6 * kn * ny;
         }
       }
     }
@@ -280,29 +321,39 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  // ---------- Shield drops ----------
+  // ---------- Power-up drops ----------
   private stepDrops(dt: number): void {
     this.dropTimer -= dt;
     if (this.dropTimer <= 0) {
-      this.dropTimer += SHIELD_EVERY;
+      this.dropTimer += DROP_EVERY;
       this.spawnDrop();
     }
 
     for (const d of this.drops) {
       d.y += d.vy * dt;
       d.wobble += dt;
+      if (d.kind === 'bomb') d.fuse -= dt;
     }
 
     this.drops = this.drops.filter((d) => {
+      const atBottom = d.y > 0 && Math.hypot(d.x, d.y) + DROP_R > R;
+      // Bombs ignore flags: they go off when the fuse runs out, or when they reach the bottom rim.
+      if (d.kind === 'bomb') {
+        if (d.fuse > 0 && !atBottom) return true;
+        this.explode(d.x, d.y);
+        return false;
+      }
       const hit = this.balls.find((b) => b.alive && Math.hypot(b.x - d.x, b.y - d.y) < BR + DROP_R);
+      const color = this.dropColor(d.kind);
       if (hit) {
-        hit.shield = SHIELD_TIME;
-        this.burst(d.x, d.y, -Math.PI / 2, 20, SHIELD_COLOR, Math.PI * 2);
+        if (d.kind === 'freeze') this.freezeBlade();
+        else hit.shield = SHIELD_TIME;
+        this.burst(d.x, d.y, -Math.PI / 2, 20, color, Math.PI * 2);
         return false;
       }
       // Missed everything and reached the bottom rim: fizzle out.
-      if (d.y > 0 && Math.hypot(d.x, d.y) + DROP_R > R) {
-        this.burst(d.x, d.y, -Math.PI / 2, 8, SHIELD_COLOR, 1.6);
+      if (atBottom) {
+        this.burst(d.x, d.y, -Math.PI / 2, 8, color, 1.6);
         return false;
       }
       return true;
@@ -310,10 +361,67 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   }
 
   private spawnDrop(): void {
-    // Random spot along the top, kept away from the edges where the arena is too shallow.
+    // Aim at a random unshielded flag (or any flag if they're all shielded).
+    const alive = this.balls.filter((b) => b.alive);
+    const open = alive.filter((b) => b.shield <= 0);
+    const pool = open.length ? open : alive;
+    if (!pool.length) return;
+    const target = pool[Math.floor(Math.random() * pool.length)];
     const lim = R - 60;
-    const x = (Math.random() * 2 - 1) * lim;
-    this.drops.push({ x, y: -R - PAD - DROP_R, vy: DROP_SPEED, wobble: 0 });
+    const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * BR));
+    const kind = this.pickDropKind();
+    const fuse = BOMB_FUSE_MIN + Math.random() * (BOMB_FUSE_MAX - BOMB_FUSE_MIN);
+    this.drops.push({ kind, x, y: -R - PAD - DROP_R, vy: DROP_SPEED, wobble: 0, fuse });
+  }
+
+  private pickDropKind(): DropKind {
+    const kinds = Object.keys(DROP_WEIGHTS) as DropKind[];
+    let roll = Math.random() * kinds.reduce((sum, k) => sum + DROP_WEIGHTS[k], 0);
+    for (const k of kinds) {
+      roll -= DROP_WEIGHTS[k];
+      if (roll < 0) return k;
+    }
+    return kinds[0];
+  }
+
+  private dropColor(kind: DropKind): string {
+    if (kind === 'freeze') return FREEZE_COLOR;
+    if (kind === 'bomb') return BOMB_COLOR;
+    return SHIELD_COLOR;
+  }
+
+  private explode(x: number, y: number): void {
+    for (const b of this.balls) {
+      if (!b.alive) continue;
+      const dx = b.x - x,
+        dy = b.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d >= BOMB_RADIUS) continue;
+      const a = d > 1e-3 ? Math.atan2(dy, dx) : Math.random() * Math.PI * 2;
+      const nx = Math.cos(a),
+        ny = Math.sin(a);
+      // Closer flags get thrown harder, and all of them head away from the blast.
+      const power = BOMB_FORCE * (0.35 + 0.65 * (1 - d / BOMB_RADIUS));
+      b.kx += nx * power;
+      b.ky += ny * power;
+      b.vx = nx;
+      b.vy = ny;
+    }
+    this.waves.push({ x, y, t: 0 });
+    this.burst(x, y, 0, 36, BOMB_COLOR, Math.PI * 2);
+    this.burst(x, y, 0, 18, this.col['hazard'], Math.PI * 2);
+    this.shake = 12;
+  }
+
+  private freezeBlade(): void {
+    this.freeze = FREEZE_TIME;
+    this.iceFlash = 1;
+    // Frost bursts along the blade as it locks up.
+    const half = (this.opts.bladeArc * Math.PI) / 360;
+    for (let i = 0; i <= 4; i++) {
+      const a = this.bladeA - half + (i / 4) * 2 * half;
+      this.burst(Math.cos(a) * R, Math.sin(a) * R, a + Math.PI, 6, FREEZE_COLOR, 2.4);
+    }
   }
 
   private burst(x: number, y: number, dir: number, n: number, color: string, spread = 1.8): void {
@@ -381,6 +489,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private finish(): void {
     this.state = 'over';
     this.drops = [];
+    this.freeze = 0;
     this.startLabel = 'Play again';
     const w = this.balls.find((b) => b.alive)!;
     this.eliminated = [{ rank: 1, flag: w.f }, ...this.eliminated];
@@ -426,6 +535,9 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     this.sparks = this.sparks.filter((s) => s.life > 0);
     this.shake *= Math.pow(0.02, dt);
     this.flash = Math.max(0, this.flash - dt * 3);
+    this.iceFlash = Math.max(0, this.iceFlash - dt * 2);
+    for (const w of this.waves) w.t += dt / 0.45;
+    this.waves = this.waves.filter((w) => w.t < 1);
   }
 
   private frame(t: number): void {
@@ -489,11 +601,29 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       g.stroke();
     }
 
+    if (this.iceFlash > 0) {
+      g.lineWidth = 10;
+      g.strokeStyle = `rgba(168,230,255,${this.iceFlash * 0.7})`;
+      g.beginPath();
+      g.arc(0, 0, R + 4, 0, Math.PI * 2);
+      g.stroke();
+    }
+
+    // Iced over while frozen; flickers back to steel in the last half second as it thaws.
+    const iced = this.freeze > 0 && !(this.freeze < 0.5 && Math.sin(this.clock * 30) < 0);
     const half = (this.opts.bladeArc * Math.PI) / 360;
     g.save();
     g.rotate(this.bladeA);
 
-    if (this.state === 'running') {
+    if (iced) {
+      g.strokeStyle = 'rgba(232,247,255,.35)';
+      g.lineWidth = 26;
+      g.beginPath();
+      g.arc(0, 0, R - 4, -half - 0.03, half + 0.03);
+      g.stroke();
+    }
+
+    if (this.state === 'running' && this.freeze <= 0) {
       for (let i = 0; i < 8; i++) {
         g.strokeStyle = `rgba(245,197,24,${0.16 * (1 - i / 8)})`;
         g.lineWidth = 10;
@@ -503,10 +633,11 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    g.shadowColor = this.col['hazard'];
+    const edge = iced ? FREEZE_COLOR : this.col['hazard'];
+    g.shadowColor = edge;
     g.shadowBlur = 14;
     g.lineWidth = 12;
-    g.strokeStyle = this.col['hazard'];
+    g.strokeStyle = edge;
     g.beginPath();
     g.arc(0, 0, R + 4, -half, half);
     g.stroke();
@@ -514,8 +645,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
 
     const teeth = Math.max(4, Math.round(this.opts.bladeArc / 5));
     const st = (2 * half) / teeth;
-    g.fillStyle = this.col['steel'];
-    g.strokeStyle = this.col['cut'];
+    g.fillStyle = iced ? '#e8f7ff' : this.col['steel'];
+    g.strokeStyle = iced ? FREEZE_COLOR : this.col['cut'];
     g.lineWidth = 1.2;
     g.beginPath();
     for (let i = 0; i < teeth; i++) {
@@ -571,6 +702,23 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       g.restore();
     }
 
+    for (const w of this.waves) {
+      const ease = 1 - Math.pow(1 - w.t, 3);
+      const r = DROP_R + (BOMB_RADIUS - DROP_R) * ease;
+      g.save();
+      g.globalAlpha = 1 - w.t;
+      g.fillStyle = 'rgba(255,138,61,.18)';
+      g.beginPath();
+      g.arc(w.x, w.y, r, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = BOMB_COLOR;
+      g.lineWidth = 2 + 8 * (1 - w.t);
+      g.shadowColor = BOMB_COLOR;
+      g.shadowBlur = 18;
+      g.stroke();
+      g.restore();
+    }
+
     for (const d of this.drops) this.drawDrop(g, d);
 
     for (const sp of this.sparks) {
@@ -592,11 +740,12 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     g.closePath();
   }
 
-  private drawDrop(g: CanvasRenderingContext2D, d: ShieldDrop): void {
+  private drawDrop(g: CanvasRenderingContext2D, d: Drop): void {
+    const color = this.dropColor(d.kind);
     g.save();
     const trail = g.createLinearGradient(d.x, d.y - 70, d.x, d.y);
-    trail.addColorStop(0, 'rgba(79,209,255,0)');
-    trail.addColorStop(1, 'rgba(79,209,255,.55)');
+    trail.addColorStop(0, color + '00');
+    trail.addColorStop(1, color + '8c');
     g.strokeStyle = trail;
     g.lineWidth = DROP_R * 0.9;
     g.lineCap = 'round';
@@ -606,20 +755,101 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     g.stroke();
 
     g.translate(d.x, d.y);
-    g.rotate(Math.sin(d.wobble * 6) * 0.25);
-    g.shadowColor = SHIELD_COLOR;
+    g.shadowColor = color;
     g.shadowBlur = 16;
-    this.shieldPath(g, DROP_R);
-    g.fillStyle = SHIELD_COLOR;
+    if (d.kind === 'freeze') {
+      g.rotate(d.wobble * 2);
+      this.drawSnowflake(g, DROP_R);
+    } else if (d.kind === 'bomb') {
+      g.rotate(Math.sin(d.wobble * 5) * 0.3);
+      this.drawBomb(g, DROP_R, d.fuse);
+    } else {
+      g.rotate(Math.sin(d.wobble * 6) * 0.25);
+      this.shieldPath(g, DROP_R);
+      g.fillStyle = SHIELD_COLOR;
+      g.fill();
+      g.shadowBlur = 0;
+      g.lineWidth = 2;
+      g.strokeStyle = '#ffffff';
+      g.stroke();
+      this.shieldPath(g, DROP_R * 0.45);
+      g.fillStyle = 'rgba(255,255,255,.9)';
+      g.fill();
+    }
+    g.restore();
+  }
+
+  private drawBomb(g: CanvasRenderingContext2D, r: number, fuse: number): void {
+    // In the last half second it swells and flashes red as a warning.
+    const critical = fuse < 0.5;
+    const blink = critical && Math.sin(this.clock * 50) > 0;
+    if (critical) g.scale(1 + (0.5 - fuse) * 0.5, 1 + (0.5 - fuse) * 0.5);
+
+    const body = g.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r);
+    body.addColorStop(0, blink ? '#ff8a7a' : '#5a6378');
+    body.addColorStop(1, blink ? '#b3261e' : '#14181f');
+    g.beginPath();
+    g.arc(0, r * 0.1, r, 0, Math.PI * 2);
+    g.fillStyle = body;
     g.fill();
     g.shadowBlur = 0;
     g.lineWidth = 2;
-    g.strokeStyle = '#ffffff';
+    g.strokeStyle = blink ? '#ffffff' : BOMB_COLOR;
     g.stroke();
-    this.shieldPath(g, DROP_R * 0.45);
-    g.fillStyle = 'rgba(255,255,255,.9)';
+
+    // Cap and fuse.
+    g.fillStyle = '#3a4152';
+    g.fillRect(-r * 0.3, -r * 1.05, r * 0.6, r * 0.3);
+    g.strokeStyle = '#d9c7a3';
+    g.lineWidth = 1.8;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(0, -r * 1.05);
+    g.quadraticCurveTo(r * 0.2, -r * 1.5, r * 0.6, -r * 1.45);
+    g.stroke();
+
+    // Flickering spark on the fuse tip, flickering faster as the fuse burns down.
+    const flick = 0.6 + 0.4 * Math.sin(this.clock * (critical ? 90 : 40));
+    g.fillStyle = this.col['hazard'];
+    g.shadowColor = BOMB_COLOR;
+    g.shadowBlur = 12;
+    g.beginPath();
+    g.arc(r * 0.6, -r * 1.45, 3 + flick * 2.5, 0, Math.PI * 2);
     g.fill();
-    g.restore();
+  }
+
+  private drawSnowflake(g: CanvasRenderingContext2D, r: number): void {
+    g.beginPath();
+    g.arc(0, 0, r, 0, Math.PI * 2);
+    g.fillStyle = '#2b8fd6';
+    g.fill();
+    g.shadowBlur = 0;
+    g.lineWidth = 2;
+    g.strokeStyle = FREEZE_COLOR;
+    g.stroke();
+
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 1.8;
+    g.lineCap = 'round';
+    const arm = r * 0.7;
+    const twig = r * 0.28;
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      const cx = Math.cos(a),
+        cy = Math.sin(a);
+      g.moveTo(0, 0);
+      g.lineTo(cx * arm, cy * arm);
+      // Little V branch on each arm.
+      const bx = cx * arm * 0.55,
+        by = cy * arm * 0.55;
+      for (const s of [1, -1]) {
+        const ba = a + s * 0.8;
+        g.moveTo(bx, by);
+        g.lineTo(bx + Math.cos(ba) * twig, by + Math.sin(ba) * twig);
+      }
+    }
+    g.stroke();
   }
 
   private drawShield(g: CanvasRenderingContext2D, b: Ball): void {
