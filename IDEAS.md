@@ -23,11 +23,11 @@ Players watch rather than control the flags, so most ideas aim for one of three 
 ## In-game events
 
 - [ ] **7. More power-ups** using the shield drop system:
-  - [ ] **Speed boost:** the flag zips around for 3 s.
-  - [x] **Ghost:** the flag passes through other flags. *Shipped:* about 1 in 5 drops. The flag that catches it turns see-through for 5 s, passes through other flags and is unaffected by bomb blasts, but the blade can still cut it. It flickers solid just before it ends.
+  - [x] **Speed boost:** the flag zips around for 3 s. *Shipped:* about 1 in 6 drops. The flag that catches it moves at 1.8× speed for 3 s, with a green afterimage trail. It cuts both ways: it escapes faster but also hits the rim, and the blade, more often.
+  - [x] **Ghost:** the flag passes through other flags. *Shipped:* about 1 in 6 drops. The flag that catches it turns see-through for 5 s, passes through other flags and is unaffected by bomb blasts, but the blade can still cut it. It flickers solid just before it ends.
   - [ ] **Magnet:** the flag pulls nearby flags toward the blade.
-  - [x] **Blade freeze:** the blade stops for 2 s. *Shipped:* about 1 in 5 drops is a snowflake. Any flag that catches it stops the blade and ices it over for 2 s, so it can't cut. It flickers just before it thaws.
-  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 5 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 130 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1 : ghost 1.
+  - [x] **Blade freeze:** the blade stops for 2 s. *Shipped:* about 1 in 6 drops is a snowflake. Any flag that catches it stops the blade and ices it over for 2 s, so it can't cut. It flickers just before it thaws.
+  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 6 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 130 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1 : ghost 1 : speed 1.
 - [ ] **8. Near-miss effects.** When a flag escapes the blade by a few pixels, flash "CLOSE!" or add a brief slow-mo. Most of the tension is in near misses, and right now they go unnoticed.
 
 ## Feedback and polish
@@ -49,12 +49,8 @@ The shield drop already works this way: every 8–10 s (random each time) it fal
 
 - [x] Shield drop: 5 s of immunity
 - [x] ~~Drop from a random spot instead of aiming at a flag~~ (tried it, then reverted: aiming at a random flag felt better)
-- [ ] **Unused shields.** A drop that misses currently fizzles at the bottom rim. Options:
-  - Stays on the floor, glowing, until a flag rolls over it *(recommended)*
-  - Keeps bouncing around the arena like a flag until one touches it
-  - Lands and fades after a few seconds
-  - Keep as is: a miss is lost
-- [ ] **Shield stacking.** If uncollected shields stay in play, decide whether new ones keep dropping on schedule or the timer waits until the current one is collected. Recommended: wait, so there's only ever one at a time.
+- [x] **Unused power-ups.** *Shipped:* a shield, snowflake, ghost or speed bolt that misses no longer fizzles. It bounces off the bottom rim and drifts around the arena at 40% of flag speed, smaller and dimmer than a falling drop, until a flag touches it. It passes through flags and other leftovers and only bounces off the rim; the blade ignores it. Bombs are unaffected.
+- [x] **Leftover limit.** *Shipped:* new drops stay on schedule. At most 3 leftovers at once; when a 4th miss happens, the oldest fades out to make room. Each leftover expires after 15 s, blinking for the last 1.5 s.
 - [x] **Random timing.** Drop every 8–10 s (random each time) instead of exactly every 10 s.
 - [ ] **Angled fall.** Let the shield fall on a slight diagonal instead of straight down.
 - [ ] **Settings toggle.** Add a Settings option to turn shields on or off and set how often they drop.

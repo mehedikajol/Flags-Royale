@@ -12,7 +12,7 @@ export const DROP_EVERY_MAX = 10;
 export const DROP_R = 14;
 export const DROP_SPEED = 260;
 // Relative odds of each drop kind.
-export const DROP_WEIGHTS: Record<DropKind, number> = { shield: 2, freeze: 1, bomb: 1, ghost: 1 };
+export const DROP_WEIGHTS: Record<DropKind, number> = { shield: 2, freeze: 1, bomb: 1, ghost: 1, speed: 1 };
 
 // Shield: the flag it hits can't be cut by the blade for SHIELD_TIME seconds.
 export const SHIELD_TIME = 5;
@@ -34,3 +34,18 @@ export const BOMB_FUSE_MAX = 2.6;
 // It can still be cut by the blade.
 export const GHOST_TIME = 5;
 export const GHOST_COLOR = '#c9a7ff';
+
+// Speed boost: the flag it hits moves SPEED_MULT times faster for SPEED_TIME seconds.
+export const SPEED_TIME = 3;
+export const SPEED_MULT = 1.8;
+export const SPEED_COLOR = '#7dff8a';
+
+// Leftovers: a non-bomb drop that misses bounces slowly around the arena until a flag catches it.
+// At most LOOSE_MAX at once (the oldest fades out to make room); each expires after LOOSE_TIME seconds.
+export const LOOSE_MAX = 3;
+export const LOOSE_TIME = 15;
+// Fraction of the flag speed that leftovers move at.
+export const LOOSE_SPEED = 0.4;
+export const LOOSE_SCALE = 0.8;
+// How long a leftover takes to fade away when it expires or is pushed out.
+export const LOOSE_FADE = 0.4;
