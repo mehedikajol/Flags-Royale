@@ -8,24 +8,35 @@ import {
   BOMB_RADIUS,
   BR,
   COUNT,
-  DROP_EVERY,
+  DROP_EVERY_MAX,
+  DROP_EVERY_MIN,
   DROP_R,
   DROP_SPEED,
   DROP_WEIGHTS,
   FREEZE_COLOR,
   FREEZE_TIME,
+  GHOST_COLOR,
+  GHOST_TIME,
+  LOOSE_FADE,
+  LOOSE_MAX,
+  LOOSE_SCALE,
+  LOOSE_SPEED,
+  LOOSE_TIME,
   PAD,
   R,
   SHIELD_COLOR,
   SHIELD_TIME,
+  SPEED_COLOR,
+  SPEED_MULT,
+  SPEED_TIME,
 } from '../../data/constants';
 import { FLAG_POOLS, FLAGS } from '../../data/flags.data';
 import { Ball } from '../../models/ball';
 import { Debris } from '../../models/debris';
+import { Drop, DropKind } from '../../models/drop';
 import { ElimEntry } from '../../models/elimEntry';
 import { Flag } from '../../models/flag';
 import { FlagPool } from '../../models/flagPool';
-import { Drop, DropKind } from '../../models/drop';
 import { Shockwave } from '../../models/shockwave';
 import { Spark } from '../../models/spark';
 
@@ -67,7 +78,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private sparks: Spark[] = [];
   private drops: Drop[] = [];
   private waves: Shockwave[] = [];
-  private dropTimer = DROP_EVERY;
+  private dropTimer = DROP_EVERY_MAX;
   private freeze = 0;
   private iceFlash = 0;
   private clock = 0;
@@ -196,6 +207,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
         vy: Math.sin(va),
         alive: true,
         shield: 0,
+        ghost: 0,
+        boost: 0,
         kx: 0,
         ky: 0,
       });
@@ -204,7 +217,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     this.sparks = [];
     this.drops = [];
     this.waves = [];
-    this.dropTimer = DROP_EVERY;
+    this.dropTimer = this.nextDropDelay();
     this.freeze = 0;
     this.iceFlash = 0;
     this.bladeA = -Math.PI / 2;
@@ -239,6 +252,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     for (const b of this.balls) {
       if (!b.alive) continue;
       if (lethal && b.shield > 0) b.shield = Math.max(0, b.shield - dt);
+      if (lethal && b.ghost > 0) b.ghost = Math.max(0, b.ghost - dt);
+      if (lethal && b.boost > 0) b.boost = Math.max(0, b.boost - dt);
       const w = (Math.random() - 0.5) * 2.4 * dt;
       const c = Math.cos(w),
         s = Math.sin(w);
@@ -246,8 +261,9 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       const nvy = b.vx * s + b.vy * c;
       b.vx = nvx;
       b.vy = nvy;
-      b.x += (b.vx * this.opts.speed + b.kx) * dt;
-      b.y += (b.vy * this.opts.speed + b.ky) * dt;
+      const sp = this.opts.speed * (b.boost > 0 ? SPEED_MULT : 1);
+      b.x += (b.vx * sp + b.kx) * dt;
+      b.y += (b.vy * sp + b.ky) * dt;
       const kd = Math.pow(0.03, dt);
       b.kx *= kd;
       b.ky *= kd;
@@ -255,8 +271,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       if (d + BR >= R) {
         const a = Math.atan2(b.y, b.x);
         // Re-check state: a blast can push several flags in at once, and the round may have just ended.
-        const onBlade =
-          lethal && this.state === 'running' && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6;
+        const onBlade = lethal && this.state === 'running' && this.angDiff(a, this.bladeA) < half + (BR / R) * 0.6;
         if (onBlade && b.shield <= 0 && this.freeze <= 0) {
           this.kill(b, a);
           continue;
@@ -289,7 +304,8 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       if (!p.alive) continue;
       for (let j = i + 1; j < this.balls.length; j++) {
         const q = this.balls[j];
-        if (!q.alive) continue;
+        // Ghosts pass straight through other flags.
+        if (!q.alive || p.ghost > 0 || q.ghost > 0) continue;
         const dx = q.x - p.x,
           dy = q.y - p.y;
         const d2 = dx * dx + dy * dy;
@@ -325,39 +341,86 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private stepDrops(dt: number): void {
     this.dropTimer -= dt;
     if (this.dropTimer <= 0) {
-      this.dropTimer += DROP_EVERY;
+      this.dropTimer += this.nextDropDelay();
       this.spawnDrop();
     }
 
     for (const d of this.drops) {
+      d.x += d.vx * dt;
       d.y += d.vy * dt;
       d.wobble += dt;
       if (d.kind === 'bomb') d.fuse -= dt;
+      if (d.loose) {
+        d.life -= dt;
+        this.bounceLoose(d);
+      }
     }
 
     this.drops = this.drops.filter((d) => {
-      const atBottom = d.y > 0 && Math.hypot(d.x, d.y) + DROP_R > R;
+      if (d.loose && d.life <= 0) return false;
+      const atBottom = !d.loose && d.y > 0 && Math.hypot(d.x, d.y) + DROP_R > R;
       // Bombs ignore flags: they go off when the fuse runs out, or when they reach the bottom rim.
       if (d.kind === 'bomb') {
         if (d.fuse > 0 && !atBottom) return true;
         this.explode(d.x, d.y);
         return false;
       }
-      const hit = this.balls.find((b) => b.alive && Math.hypot(b.x - d.x, b.y - d.y) < BR + DROP_R);
+      // A leftover that's fading out can't be caught any more.
+      const catchable = !d.loose || d.life > LOOSE_FADE;
+      const reach = BR + DROP_R * (d.loose ? LOOSE_SCALE : 1);
+      const hit = catchable && this.balls.find((b) => b.alive && Math.hypot(b.x - d.x, b.y - d.y) < reach);
       const color = this.dropColor(d.kind);
       if (hit) {
         if (d.kind === 'freeze') this.freezeBlade();
+        else if (d.kind === 'ghost') hit.ghost = GHOST_TIME;
+        else if (d.kind === 'speed') hit.boost = SPEED_TIME;
         else hit.shield = SHIELD_TIME;
         this.burst(d.x, d.y, -Math.PI / 2, 20, color, Math.PI * 2);
         return false;
       }
-      // Missed everything and reached the bottom rim: fizzle out.
+      // Missed everything and reached the bottom rim: bounce off and keep going as a leftover.
       if (atBottom) {
+        this.makeLoose(d);
         this.burst(d.x, d.y, -Math.PI / 2, 8, color, 1.6);
-        return false;
       }
       return true;
     });
+  }
+
+  private makeLoose(d: Drop): void {
+    // Make room: the oldest catchable leftover (least life left) starts fading out.
+    const loose = this.drops.filter((o) => o.loose && o.life > LOOSE_FADE);
+    if (loose.length >= LOOSE_MAX) {
+      const oldest = loose.reduce((a, b) => (a.life <= b.life ? a : b));
+      oldest.life = LOOSE_FADE;
+    }
+    // Head back up into the arena at a random angle, at a fraction of the flag speed.
+    const a = Math.atan2(d.y, d.x) + Math.PI + (Math.random() - 0.5) * 1.6;
+    const sp = this.opts.speed * LOOSE_SPEED;
+    d.vx = Math.cos(a) * sp;
+    d.vy = Math.sin(a) * sp;
+    d.loose = true;
+    d.life = LOOSE_TIME;
+    this.bounceLoose(d);
+  }
+
+  private bounceLoose(d: Drop): void {
+    const r = DROP_R * LOOSE_SCALE;
+    const dist = Math.hypot(d.x, d.y);
+    if (dist + r < R) return;
+    const nx = d.x / dist,
+      ny = d.y / dist;
+    d.x = nx * (R - r);
+    d.y = ny * (R - r);
+    const vn = d.vx * nx + d.vy * ny;
+    if (vn > 0) {
+      d.vx -= 2 * vn * nx;
+      d.vy -= 2 * vn * ny;
+    }
+  }
+
+  private nextDropDelay(): number {
+    return DROP_EVERY_MIN + Math.random() * (DROP_EVERY_MAX - DROP_EVERY_MIN);
   }
 
   private spawnDrop(): void {
@@ -371,7 +434,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * BR));
     const kind = this.pickDropKind();
     const fuse = BOMB_FUSE_MIN + Math.random() * (BOMB_FUSE_MAX - BOMB_FUSE_MIN);
-    this.drops.push({ kind, x, y: -R - PAD - DROP_R, vy: DROP_SPEED, wobble: 0, fuse });
+    this.drops.push({ kind, x, y: -R - PAD - DROP_R, vx: 0, vy: DROP_SPEED, wobble: 0, fuse, loose: false, life: 0 });
   }
 
   private pickDropKind(): DropKind {
@@ -387,12 +450,15 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private dropColor(kind: DropKind): string {
     if (kind === 'freeze') return FREEZE_COLOR;
     if (kind === 'bomb') return BOMB_COLOR;
+    if (kind === 'ghost') return GHOST_COLOR;
+    if (kind === 'speed') return SPEED_COLOR;
     return SHIELD_COLOR;
   }
 
   private explode(x: number, y: number): void {
     for (const b of this.balls) {
-      if (!b.alive) continue;
+      // Ghosts aren't touched by the blast.
+      if (!b.alive || b.ghost > 0) continue;
       const dx = b.x - x,
         dy = b.y - y;
       const d = Math.hypot(dx, dy);
@@ -666,26 +732,40 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     g.font = `600 ${lp}px "Bricolage Grotesque", system-ui, sans-serif`;
     for (const b of this.balls) {
       if (!b.alive) continue;
+      if (b.boost > 0) this.drawBoostTrail(g, b);
+      // Ghosts are see-through; they flicker solid in the last 1.5s before turning back.
+      const ghostly = b.ghost > 0 && !(b.ghost < 1.5 && Math.sin(this.clock * 24) < 0);
+      if (!ghostly) {
+        g.save();
+        g.shadowColor = 'rgba(0,0,0,.45)';
+        g.shadowBlur = 8;
+        g.shadowOffsetY = 3;
+        g.fillStyle = '#000';
+        g.beginPath();
+        g.arc(b.x, b.y, BR, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      }
       g.save();
-      g.shadowColor = 'rgba(0,0,0,.45)';
-      g.shadowBlur = 8;
-      g.shadowOffsetY = 3;
-      g.fillStyle = '#000';
-      g.beginPath();
-      g.arc(b.x, b.y, BR, 0, Math.PI * 2);
-      g.fill();
-      g.restore();
+      if (ghostly) g.globalAlpha = 0.35 + 0.1 * Math.sin(this.clock * 6);
       this.drawBadge(g, b.f, b.x, b.y, BR);
       g.lineWidth = 2;
-      g.strokeStyle = 'rgba(255,255,255,.85)';
+      g.strokeStyle = ghostly ? GHOST_COLOR : 'rgba(255,255,255,.85)';
+      if (ghostly) g.setLineDash([4, 4]);
       g.beginPath();
       g.arc(b.x, b.y, BR, 0, Math.PI * 2);
       g.stroke();
+      g.restore();
+      if (b.ghost > 0) this.drawGhostTimer(g, b);
+      if (b.boost > 0) this.drawBoostTimer(g, b);
       if (b.shield > 0) this.drawShield(g, b);
+      g.save();
+      if (ghostly) g.globalAlpha = 0.6;
       g.fillStyle = 'rgba(0,0,0,.55)';
       g.fillText(b.f.n, b.x + 1, b.y + BR + lp);
       g.fillStyle = '#eef1f6';
       g.fillText(b.f.n, b.x, b.y + BR + lp - 1);
+      g.restore();
     }
 
     for (const p of this.debris) {
@@ -742,27 +822,40 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
 
   private drawDrop(g: CanvasRenderingContext2D, d: Drop): void {
     const color = this.dropColor(d.kind);
+    // Leftovers blink in their last 1.5s and fade out at the very end.
+    if (d.loose && d.life < 1.5 && d.life > LOOSE_FADE && Math.sin(this.clock * 20) < 0) return;
     g.save();
-    const trail = g.createLinearGradient(d.x, d.y - 70, d.x, d.y);
-    trail.addColorStop(0, color + '00');
-    trail.addColorStop(1, color + '8c');
-    g.strokeStyle = trail;
-    g.lineWidth = DROP_R * 0.9;
-    g.lineCap = 'round';
-    g.beginPath();
-    g.moveTo(d.x, d.y - 70);
-    g.lineTo(d.x, d.y);
-    g.stroke();
+    if (d.loose) {
+      g.globalAlpha = 0.85 * Math.min(1, d.life / LOOSE_FADE);
+    } else {
+      const trail = g.createLinearGradient(d.x, d.y - 70, d.x, d.y);
+      trail.addColorStop(0, color + '00');
+      trail.addColorStop(1, color + '8c');
+      g.strokeStyle = trail;
+      g.lineWidth = DROP_R * 0.9;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(d.x, d.y - 70);
+      g.lineTo(d.x, d.y);
+      g.stroke();
+    }
 
     g.translate(d.x, d.y);
+    if (d.loose) g.scale(LOOSE_SCALE, LOOSE_SCALE);
     g.shadowColor = color;
-    g.shadowBlur = 16;
+    g.shadowBlur = d.loose ? 8 : 16;
     if (d.kind === 'freeze') {
       g.rotate(d.wobble * 2);
       this.drawSnowflake(g, DROP_R);
     } else if (d.kind === 'bomb') {
       g.rotate(Math.sin(d.wobble * 5) * 0.3);
       this.drawBomb(g, DROP_R, d.fuse);
+    } else if (d.kind === 'ghost') {
+      g.translate(0, Math.sin(d.wobble * 5) * 2);
+      this.drawGhostIcon(g, DROP_R);
+    } else if (d.kind === 'speed') {
+      g.rotate(Math.sin(d.wobble * 6) * 0.2);
+      this.drawBoltIcon(g, DROP_R);
     } else {
       g.rotate(Math.sin(d.wobble * 6) * 0.25);
       this.shieldPath(g, DROP_R);
@@ -850,6 +943,91 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       }
     }
     g.stroke();
+  }
+
+  private drawGhostIcon(g: CanvasRenderingContext2D, r: number): void {
+    // Rounded head, wavy hem, two eyes.
+    const w = (r * 1.6) / 3;
+    g.beginPath();
+    g.moveTo(-r * 0.8, r * 0.9);
+    g.lineTo(-r * 0.8, -r * 0.1);
+    g.arc(0, -r * 0.1, r * 0.8, Math.PI, 0);
+    g.lineTo(r * 0.8, r * 0.9);
+    for (let i = 0; i < 3; i++) {
+      const x0 = r * 0.8 - i * w;
+      g.quadraticCurveTo(x0 - w / 2, r * 0.45, x0 - w, r * 0.9);
+    }
+    g.closePath();
+    g.fillStyle = '#f3ecff';
+    g.fill();
+    g.shadowBlur = 0;
+    g.lineWidth = 2;
+    g.strokeStyle = GHOST_COLOR;
+    g.stroke();
+    g.fillStyle = '#3b2a5c';
+    for (const ex of [-r * 0.3, r * 0.3]) {
+      g.beginPath();
+      g.ellipse(ex, -r * 0.15, r * 0.13, r * 0.2, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  private drawBoltIcon(g: CanvasRenderingContext2D, r: number): void {
+    g.beginPath();
+    g.arc(0, 0, r, 0, Math.PI * 2);
+    g.fillStyle = '#1f7a3a';
+    g.fill();
+    g.shadowBlur = 0;
+    g.lineWidth = 2;
+    g.strokeStyle = SPEED_COLOR;
+    g.stroke();
+    g.beginPath();
+    g.moveTo(r * 0.15, -r * 0.75);
+    g.lineTo(-r * 0.45, r * 0.1);
+    g.lineTo(-r * 0.02, r * 0.1);
+    g.lineTo(-r * 0.2, r * 0.75);
+    g.lineTo(r * 0.45, -r * 0.12);
+    g.lineTo(r * 0.02, -r * 0.12);
+    g.closePath();
+    g.fillStyle = '#ffffff';
+    g.fill();
+  }
+
+  private drawBoostTrail(g: CanvasRenderingContext2D, b: Ball): void {
+    // Afterimages behind the flag; they fade out over the last half second of the boost.
+    const fade = Math.min(1, b.boost / 0.5);
+    g.save();
+    g.fillStyle = SPEED_COLOR;
+    for (let i = 4; i >= 1; i--) {
+      g.globalAlpha = 0.22 * (1 - i / 5) * fade;
+      g.beginPath();
+      g.arc(b.x - b.vx * i * 11, b.y - b.vy * i * 11, BR * (1 - i * 0.1), 0, Math.PI * 2);
+      g.fill();
+    }
+    g.restore();
+  }
+
+  private drawBoostTimer(g: CanvasRenderingContext2D, b: Ball): void {
+    g.save();
+    g.strokeStyle = SPEED_COLOR;
+    g.lineWidth = 2;
+    g.globalAlpha = 0.9;
+    g.beginPath();
+    g.arc(b.x, b.y, BR + 14, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * b.boost) / SPEED_TIME);
+    g.stroke();
+    g.restore();
+  }
+
+  private drawGhostTimer(g: CanvasRenderingContext2D, b: Ball): void {
+    // Remaining ghost time as a lavender sweep, outside the shield ring if both are active.
+    g.save();
+    g.strokeStyle = GHOST_COLOR;
+    g.lineWidth = 2;
+    g.globalAlpha = 0.9;
+    g.beginPath();
+    g.arc(b.x, b.y, BR + 10, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * b.ghost) / GHOST_TIME);
+    g.stroke();
+    g.restore();
   }
 
   private drawShield(g: CanvasRenderingContext2D, b: Ball): void {
