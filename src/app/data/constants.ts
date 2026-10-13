@@ -5,8 +5,10 @@ export const R = 350;
 export const BR = 20;
 export const PAD = 20;
 
-// Power-up drops: every DROP_EVERY seconds of play one falls from the top, lined up with a random flag.
-export const DROP_EVERY = 10;
+// Power-up drops: every DROP_EVERY_MIN–DROP_EVERY_MAX seconds of play (random each time) one falls
+// from the top, lined up with a random flag.
+export const DROP_EVERY_MIN = 8;
+export const DROP_EVERY_MAX = 10;
 export const DROP_R = 14;
 export const DROP_SPEED = 260;
 // Relative odds of each drop kind.
@@ -22,7 +24,7 @@ export const FREEZE_COLOR = '#a8e6ff';
 
 // Bomb: ignores flags and explodes after a random fuse (or on reaching the bottom rim),
 // throwing every flag within BOMB_RADIUS outward toward the rim.
-export const BOMB_RADIUS = 170;
+export const BOMB_RADIUS = 130;
 export const BOMB_FORCE = 700;
 export const BOMB_COLOR = '#ff8a3d';
 export const BOMB_FUSE_MIN = 0.8;

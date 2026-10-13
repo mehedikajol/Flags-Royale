@@ -8,7 +8,8 @@ import {
   BOMB_RADIUS,
   BR,
   COUNT,
-  DROP_EVERY,
+  DROP_EVERY_MAX,
+  DROP_EVERY_MIN,
   DROP_R,
   DROP_SPEED,
   DROP_WEIGHTS,
@@ -67,7 +68,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private sparks: Spark[] = [];
   private drops: Drop[] = [];
   private waves: Shockwave[] = [];
-  private dropTimer = DROP_EVERY;
+  private dropTimer = DROP_EVERY_MAX;
   private freeze = 0;
   private iceFlash = 0;
   private clock = 0;
@@ -204,7 +205,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
     this.sparks = [];
     this.drops = [];
     this.waves = [];
-    this.dropTimer = DROP_EVERY;
+    this.dropTimer = this.nextDropDelay();
     this.freeze = 0;
     this.iceFlash = 0;
     this.bladeA = -Math.PI / 2;
@@ -325,7 +326,7 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
   private stepDrops(dt: number): void {
     this.dropTimer -= dt;
     if (this.dropTimer <= 0) {
-      this.dropTimer += DROP_EVERY;
+      this.dropTimer += this.nextDropDelay();
       this.spawnDrop();
     }
 
@@ -358,6 +359,10 @@ export class FlagsRoyaleComponent implements AfterViewInit, OnDestroy {
       }
       return true;
     });
+  }
+
+  private nextDropDelay(): number {
+    return DROP_EVERY_MIN + Math.random() * (DROP_EVERY_MAX - DROP_EVERY_MIN);
   }
 
   private spawnDrop(): void {

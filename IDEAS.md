@@ -27,7 +27,7 @@ Players watch rather than control the flags, so most ideas aim for one of three 
   - [ ] **Ghost:** the flag passes through other flags.
   - [ ] **Magnet:** the flag pulls nearby flags toward the blade.
   - [x] **Blade freeze:** the blade stops for 2 s. *Shipped:* about 1 in 4 drops is a snowflake. Any flag that catches it stops the blade and ices it over for 2 s, so it can't cut. It flickers just before it thaws.
-  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 4 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 170 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1.
+  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 4 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 130 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1.
 - [ ] **8. Near-miss effects.** When a flag escapes the blade by a few pixels, flash "CLOSE!" or add a brief slow-mo. Most of the tension is in near misses, and right now they go unnoticed.
 
 ## Feedback and polish
@@ -45,16 +45,16 @@ Players watch rather than control the flags, so most ideas aim for one of three 
 
 ## Shield drop follow-ups
 
-The shield drop already works this way: every 10 s it falls from the top, lined up with a random flag, and the flag it hits is immune to the blade for 5 s.
+The shield drop already works this way: every 8–10 s (random each time) it falls from the top, lined up with a random flag, and the flag it hits is immune to the blade for 5 s.
 
-- [x] Shield drop: every 10 s, 5 s of immunity
+- [x] Shield drop: 5 s of immunity
 - [x] ~~Drop from a random spot instead of aiming at a flag~~ (tried it, then reverted: aiming at a random flag felt better)
 - [ ] **Unused shields.** A drop that misses currently fizzles at the bottom rim. Options:
   - Stays on the floor, glowing, until a flag rolls over it *(recommended)*
   - Keeps bouncing around the arena like a flag until one touches it
   - Lands and fades after a few seconds
   - Keep as is: a miss is lost
-- [ ] **Shield stacking.** If uncollected shields stay in play, decide whether new ones keep dropping every 10 s or the timer waits until the current one is collected. Recommended: wait, so there's only ever one at a time.
-- [ ] **Random timing.** Drop every 8–12 s instead of exactly every 10 s.
+- [ ] **Shield stacking.** If uncollected shields stay in play, decide whether new ones keep dropping on schedule or the timer waits until the current one is collected. Recommended: wait, so there's only ever one at a time.
+- [x] **Random timing.** Drop every 8–10 s (random each time) instead of exactly every 10 s.
 - [ ] **Angled fall.** Let the shield fall on a slight diagonal instead of straight down.
 - [ ] **Settings toggle.** Add a Settings option to turn shields on or off and set how often they drop.
