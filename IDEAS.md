@@ -24,10 +24,10 @@ Players watch rather than control the flags, so most ideas aim for one of three 
 
 - [ ] **7. More power-ups** using the shield drop system:
   - [ ] **Speed boost:** the flag zips around for 3 s.
-  - [ ] **Ghost:** the flag passes through other flags.
+  - [x] **Ghost:** the flag passes through other flags. *Shipped:* about 1 in 5 drops. The flag that catches it turns see-through for 5 s, passes through other flags and is unaffected by bomb blasts, but the blade can still cut it. It flickers solid just before it ends.
   - [ ] **Magnet:** the flag pulls nearby flags toward the blade.
-  - [x] **Blade freeze:** the blade stops for 2 s. *Shipped:* about 1 in 4 drops is a snowflake. Any flag that catches it stops the blade and ices it over for 2 s, so it can't cut. It flickers just before it thaws.
-  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 4 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 130 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1.
+  - [x] **Blade freeze:** the blade stops for 2 s. *Shipped:* about 1 in 5 drops is a snowflake. Any flag that catches it stops the blade and ices it over for 2 s, so it can't cut. It flickers just before it thaws.
+  - [x] **Bomb:** pushes nearby flags outward toward the rim. *Shipped:* about 1 in 5 drops. Flags pass by it; it explodes after a random 0.8–2.6 s fuse, or when it reaches the bottom rim, and swells and flashes red just before. Flags within 130 units are thrown outward, harder the closer they are. The blast never kills directly; only the blade does, so shielded flags survive. Drop odds are now shield 2 : freeze 1 : bomb 1 : ghost 1.
 - [ ] **8. Near-miss effects.** When a flag escapes the blade by a few pixels, flash "CLOSE!" or add a brief slow-mo. Most of the tension is in near misses, and right now they go unnoticed.
 
 ## Feedback and polish

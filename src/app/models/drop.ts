@@ -1,4 +1,4 @@
-export type DropKind = 'shield' | 'freeze' | 'bomb';
+export type DropKind = 'shield' | 'freeze' | 'bomb' | 'ghost';
 
 export interface Drop {
   kind: DropKind;

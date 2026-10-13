@@ -12,7 +12,7 @@ export const DROP_EVERY_MAX = 10;
 export const DROP_R = 14;
 export const DROP_SPEED = 260;
 // Relative odds of each drop kind.
-export const DROP_WEIGHTS: Record<DropKind, number> = { shield: 2, freeze: 1, bomb: 1 };
+export const DROP_WEIGHTS: Record<DropKind, number> = { shield: 2, freeze: 1, bomb: 1, ghost: 1 };
 
 // Shield: the flag it hits can't be cut by the blade for SHIELD_TIME seconds.
 export const SHIELD_TIME = 5;
@@ -29,3 +29,8 @@ export const BOMB_FORCE = 700;
 export const BOMB_COLOR = '#ff8a3d';
 export const BOMB_FUSE_MIN = 0.8;
 export const BOMB_FUSE_MAX = 2.6;
+
+// Ghost: the flag it hits passes through other flags and ignores bomb blasts for GHOST_TIME seconds.
+// It can still be cut by the blade.
+export const GHOST_TIME = 5;
+export const GHOST_COLOR = '#c9a7ff';

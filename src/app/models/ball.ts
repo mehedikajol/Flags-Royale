@@ -8,6 +8,8 @@ export interface Ball {
   vy: number;
   alive: boolean;
   shield: number;
+  // Seconds left as a ghost: passes through other flags and ignores bomb blasts.
+  ghost: number;
   // Extra velocity from bomb blasts, decays quickly.
   kx: number;
   ky: number;
